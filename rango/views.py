@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from django.http import HttpResponse
+from rango.models import Category
 
 def index(request):
     # The dictionary passes to the template engine as its context
