@@ -1,7 +1,12 @@
 from django.shortcuts import render
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from rango.models import Category, Page
 from rango.forms import CategoryForm, PageForm
+from rango.forms import UserForm, UserProfileForm
+from django.contrib.auth import authenticate, login
+from django.core.urlresolvers import reverse
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import logout
 
 def index(request):
     # Queries the Category model to retrive the top five categories; '-lies' in desceding order
@@ -13,8 +18,12 @@ def index(request):
     return render(request, 'rango/index.html', context = context_dict)
 
 def about(request):
+    # prints out whether the method is a GET or a POST
+    print(request.method)
+    # prints out the user name, if no one is logged in, prints 'AnonymousUser'
+    print(request.user)
     #return HttpResponse('Rango says here is the about page. <br/> <a href="http://127.0.0.1:8000/rango/">Index</a>')
-    return render(request, 'rango/about.html')
+    return render(request, 'rango/about.html', {})
 
 def show_category(request, category_name_slug):
     # Create a context dictionary which we can pass to the template rendering engine
@@ -42,6 +51,7 @@ def show_category(request, category_name_slug):
     # Go render the response and return it to the client
     return render(request, 'rango/category.html', context_dict)
 
+@login_required
 def add_category(request):
     form = CategoryForm()
 
@@ -65,6 +75,7 @@ def add_category(request):
     # Render the form with errors messages (if any)
     return render(request, 'rango/add_category.html', {'form': form})
 
+@login_required
 def add_page(request, category_name_slug):
     try:
         category = Category.objects.get(slug=category_name_slug)
@@ -86,3 +97,89 @@ def add_page(request, category_name_slug):
 
     context_dict = {'form':form, 'category':category, 'category_name_slug': category_name_slug}
     return render(request, 'rango/add_page.html', context_dict)
+
+
+def register(request):
+    # A boolean value for telling the template
+    registered = False
+
+    # If it's a HTTP POST, we're interested in processing form data
+    if request.method == 'POST':
+        # Attempt to grab information from raw form information.
+        # Note that we make use of both USerForm and UserProfileForm
+        user_form = UserForm(data=request.POST)
+        profile_form = UserProfileForm(data=request.POST)
+
+        # if the two forms are valid
+        if user_form.is_valid() and profile_form.is_valid():
+            # save the users form data to the database
+            user = user_form.save()
+
+            user.set_password(user.password)
+            user.save()
+
+            # Sort out the UserProfile instance. Since you need to set the user
+            # attribute yourself, set commit=False. This delays saving the model
+            # until we're ready to avoid integrity problems
+            profile = profile_form.save(commit=False)
+            profile.user = user
+
+            # Sorting out the profile picture
+            if 'picture' in request.FILES:
+                profile.picture = request.FILES['picture']
+
+            profile.save()
+
+            registered = True
+        else:
+            #Invalid form or forms; print problems to the terminal
+            print(user_form.errors, profile_form.errors)
+    else:
+        # Not a HTTP POST, so render the form using two ModelForm instances
+        # These forms will be blank, ready for user input
+        user_form = UserForm()
+        profile_form = UserProfileForm()
+
+    return render(request, 'rango/register.html', 
+                            {'user_form' : user_form,
+                            'profile_form' : profile_form,
+                            'registered': registered})
+
+
+def user_login(request):
+    if request.method == 'POST':
+        # request.POST.get('variable') will return None if the value doesnt exist
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+
+        # see if the combination is valid - User object is returned if it is
+        user = authenticate(username=username, password=password)
+
+        if user:
+            if user.is_active:
+                login(request, user)
+                return HttpResponseRedirect(reverse('index'))
+            else:
+                return HttpResponse("Your Rango account is disabled.")
+
+        else:
+            # Bad login details
+            print("Invalid login details: {0}, {1}".format(username, password))
+            return HttpResponse("Invalid login  details supplied.")
+
+        # The requets is not HTTP POST, so display the login form
+    else:
+            # No context variabels to pass to the template system, hence 
+            # the blank dictionary object..
+            return render(request, 'rango/login.html', {})
+
+
+@login_required
+def restricted(request):
+    return render(request, 'rango/restricted.html', {})
+
+
+@login_required
+def user_logout(request):
+    logout(request)
+    return HttpResponseRedirect(reverse('index'))
